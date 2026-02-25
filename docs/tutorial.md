@@ -338,7 +338,7 @@ Hover your mouse over any YAML key (e.g., `DescriptionForModel`, `ExamplePrompts
 
 ## Next Steps
 
-- Browse the [Security Copilot plugin documentation](https://learn.microsoft.com/security-copilot/extend/)
+- Browse the [Security Copilot plugin documentation](https://learn.microsoft.com/en-us/copilot/security/plugin-overview)
 - See real-world examples in the [Community Plugins](https://github.com/Azure/Copilot-For-Security/tree/main/Plugins) repo
 - Check out [Promptbook samples](https://github.com/Azure/Copilot-For-Security/tree/main/Promptbook%20samples) for investigation workflows
 - Upload your plugin to Security Copilot: **Settings → Custom plugins → Add plugin → Upload file**
