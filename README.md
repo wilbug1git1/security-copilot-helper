@@ -206,6 +206,7 @@ Or use the included script:
 
 ## Resources
 
+- **[Tutorial: Building Plugins & Promptbooks](docs/tutorial.md)** — Step-by-step guide covering the scaffold wizard, `sc-` snippets, and validation
 - [Security Copilot Plugin Documentation](https://learn.microsoft.com/security-copilot/extend/)
 - [Create API Plugins](https://learn.microsoft.com/security-copilot/extend/create-api-plugin)
 - [Create GPT Plugins](https://learn.microsoft.com/security-copilot/extend/create-gpt-plugin)
