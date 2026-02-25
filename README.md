@@ -235,6 +235,30 @@ Or use the included script:
 2. Press **F5** to launch the Extension Development Host
 3. Open or create a `.yaml` file and start typing `sc-`
 
+### Uninstall, Rebuild & Reinstall
+
+After making changes to the extension source code, you need to repackage and reinstall:
+
+```powershell
+# 1. Uninstall the current version
+code --uninstall-extension security-copilot-community.security-copilot-helper
+
+# 2. Compile TypeScript
+npm run compile
+
+# 3. Repackage as .vsix
+npm run package
+
+# 4. Install the new build
+code --install-extension security-copilot-helper-0.1.0.vsix
+```
+
+Then reload VS Code to pick up the changes:
+
+- Press `Ctrl+Shift+P` → type **Developer: Reload Window** → press Enter
+
+> **Tip:** You can combine steps 2–4 with `.\scripts\build-and-install.ps1`. You still need to uninstall first if the previous version is already installed, and reload the window afterward.
+
 ---
 
 ## Extension Settings
