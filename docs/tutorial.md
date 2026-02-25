@@ -7,11 +7,15 @@ This step-by-step tutorial walks you through creating a custom Security Copilot 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Part 1 — Create a Plugin with the Scaffold Wizard](#part-1--create-a-plugin-with-the-scaffold-wizard)
-- [Part 2 — Build a Plugin Manually with `sc-` Snippets](#part-2--build-a-plugin-manually-with-sc--snippets)
-- [Part 3 — Create a Promptbook](#part-3--create-a-promptbook)
-- [Part 4 — Using `sc-` Snippets Reference](#part-4--using-sc--snippets-reference)
-- [Part 5 — Validation & Best Practices](#part-5--validation--best-practices)
+- [Part 1 — Create a KQL Plugin with the Scaffold Wizard](#part-1--create-a-kql-plugin-with-the-scaffold-wizard)
+- [Part 2 — Create an Agent with the Scaffold Wizard](#part-2--create-an-agent-with-the-scaffold-wizard)
+- [Part 3 — Build a Plugin Manually with `sc-` Snippets](#part-3--build-a-plugin-manually-with-sc--snippets)
+- [Part 4 — Build a LogicApp, MCP, or Agent Plugin Manually](#part-4--build-a-logicapp-mcp-or-agent-plugin-manually)
+- [Part 5 — Mixed-Format Plugins](#part-5--mixed-format-plugins)
+- [Part 6 — Create a Promptbook](#part-6--create-a-promptbook)
+- [Part 7 — Using `sc-` Snippets Reference](#part-7--using-sc--snippets-reference)
+- [Part 8 — Validation & Best Practices](#part-8--validation--best-practices)
+- [Part 9 — KQL Template Validation in Action](#part-9--kql-template-validation-in-action)
 - [Next Steps](#next-steps)
 
 ---
@@ -23,7 +27,7 @@ This step-by-step tutorial walks you through creating a custom Security Copilot 
 
 ---
 
-## Part 1 — Create a Plugin with the Scaffold Wizard
+## Part 1 — Create a KQL Plugin with the Scaffold Wizard
 
 The fastest way to create a plugin is the **guided wizard**. It asks you five questions and generates a complete, ready-to-upload project.
 
@@ -109,7 +113,101 @@ The `manifest.yaml` opens automatically with all fields pre-filled, validation r
 
 ---
 
-## Part 2 — Build a Plugin Manually with `sc-` Snippets
+## Part 2 — Create an Agent with the Scaffold Wizard
+
+Agents are the most powerful plugin type — they orchestrate multiple skills, run in loops, and can provide interactive chat experiences. The wizard handles the extra complexity for you.
+
+### Step 1: Launch the Wizard
+
+Open the Command Palette and run:
+
+```
+Security Copilot: New Agent
+```
+
+Or use the full wizard (`Security Copilot: Scaffold New Plugin`) and select **Agent**.
+
+### Step 2: Choose Agent Type
+
+The wizard asks you to pick between:
+
+| Type | Description |
+|------|-------------|
+| **Standard** | Autonomous agent — runs on a schedule via Triggers, processes data with a ProcessSkill, and generates findings without user interaction |
+| **Interactive** | Chat-based agent — users interact via prompts and follow-ups, requires `PromptSkill`, `OrchestratorSkill`, and `UserRequest` input |
+
+For this tutorial, pick **Standard**.
+
+### Step 3: Name, Describe, Authenticate
+
+Same as any plugin:
+- **Name**: `IncidentTriageAgent`
+- **Display Name**: `Incident Triage Agent`
+- **Description**: `Automatically triages and prioritizes security incidents from Microsoft Sentinel`
+- **Auth**: None
+
+### Step 4: Pick a Model
+
+Agents need a model for orchestration:
+- **gpt-4o** — recommended for most agents
+- **gpt-4.1** — latest model with improved reasoning
+
+Pick **gpt-4o**.
+
+### What Gets Created
+
+```
+IncidentTriageAgent/
+├── manifest.yaml     ← Plugin manifest with SkillGroups AND AgentDefinitions
+├── README.md         ← Documentation
+└── query.kql         ← Sample KQL for the agent's child skill
+```
+
+The manifest includes these agent-specific sections:
+
+```yaml
+# Skills the agent can invoke
+SkillGroups:
+  - Format: Agent
+    Skills:
+      - Name: TriageAgent
+        Interfaces:
+          - Agent
+        Settings:
+          Instructions: |-
+            # Mission
+            You are a security triage agent...
+          Model: gpt-4o
+        ChildSkills:
+          - IncidentTriageAgent.FetchIncidents
+
+# Agent deployment configuration
+AgentDefinitions:
+  - Name: IncidentTriageAgent
+    DisplayName: Incident Triage Agent
+    Publisher: My Team
+    Product: SecurityCopilot
+    RequiredSkillsets:
+      - IncidentTriageAgent
+    Triggers:
+      - Name: Default
+        DefaultPollPeriodSeconds: "0"
+        ProcessSkill: IncidentTriageAgent.TriageAgent
+```
+
+### Interactive Agent Differences
+
+If you chose **Interactive** instead, the wizard would also generate:
+
+- `Interfaces: [InteractiveAgent]` on the skill
+- A single input: `Name: UserRequest`
+- `OrchestratorSkill: DefaultAgentOrchestrator` in Settings
+- `PromptSkill: IncidentTriageAgent.TriageAgent` in AgentDefinitions
+- `SuggestedPrompts` with starter prompts for different security personas
+
+---
+
+## Part 3 — Build a Plugin Manually with `sc-` Snippets
 
 If you prefer to write a plugin from scratch, the extension provides **snippet prefixes** that scaffold code blocks as you type.
 
@@ -175,7 +273,209 @@ Need API key auth? Type `sc-auth-apikey` + **Tab** inside the `Descriptor:` sect
 
 ---
 
-## Part 3 — Create a Promptbook
+## Part 4 — Build a LogicApp, MCP, or Agent Plugin Manually
+
+Beyond API, GPT, and KQL, the extension supports three additional plugin formats. Here's how to build each one manually.
+
+### LogicApp Plugin
+
+LogicApp plugins trigger Azure Logic App workflows. Type `sc-logicapp-plugin` in a new YAML file:
+
+```yaml
+Descriptor:
+  Name: AlertNotifier
+  DisplayName: "Alert Notifier"
+  Description: >
+    Sends security alerts to Teams channels via Logic App.
+
+SkillGroups:
+  - Format: LogicApp
+    Skills:
+      - Name: SendAlert
+        DisplayName: "Send Alert Notification"
+        Description: >
+          Sends an alert notification to the configured Teams channel.
+        Inputs:
+          - Name: alertTitle
+            Description: Title of the security alert
+            Required: true
+          - Name: alertSeverity
+            Description: Severity level (High, Medium, Low)
+            Required: true
+        Settings:
+          SubscriptionId: <YOUR-SUBSCRIPTION-ID>
+          ResourceGroup: <YOUR-RESOURCE-GROUP>
+          WorkflowName: <YOUR-LOGIC-APP-NAME>
+          TriggerName: manual
+```
+
+> **Key fields**: `SubscriptionId`, `ResourceGroup`, `WorkflowName`, and `TriggerName` are all required. The Logic App must be in the same Azure tenant as your Security Copilot instance.
+
+### MCP Plugin
+
+MCP (Model Context Protocol) plugins connect to remote MCP servers. Type `sc-mcp-plugin`:
+
+```yaml
+Descriptor:
+  Name: DocsSearch
+  DisplayName: "Documentation Search"
+  Description: >
+    Search Microsoft Learn documentation via MCP.
+  DescriptionForModel: >
+    Use this plugin when the user asks about Microsoft documentation,
+    product features, or configuration guidance.
+
+SkillGroups:
+  - Format: MCP
+    Settings:
+      Endpoint: https://learn.microsoft.com/api/mcp
+      AllowedTools: microsoft_docs_search, microsoft_docs_fetch
+```
+
+> **Key fields**: `Endpoint` is required. `AllowedTools` is strongly recommended for security — it restricts which MCP tools Security Copilot can invoke. Add `DescriptionForModel` to guide the AI on when to use the MCP tools.
+
+### Agent Plugin (Manual)
+
+Building an agent manually gives you full control. Type `sc-agent` for a standard agent or `sc-agent-interactive` for an interactive one:
+
+```yaml
+Descriptor:
+  Name: ThreatHunter
+  DisplayName: "Threat Hunter Agent"
+  Description: >
+    Autonomous agent that hunts for threats across Defender and Sentinel.
+
+SkillGroups:
+  # Child skill: KQL query the agent will invoke
+  - Format: KQL
+    Skills:
+      - Name: GetRecentAlerts
+        Description: Fetch recent high-severity alerts
+        Settings:
+          Target: Defender
+          Template: |-
+            AlertInfo
+            | where Timestamp > ago(7d)
+            | where Severity == "High"
+            | top 20 by Timestamp desc
+
+  # Agent orchestration skill
+  - Format: Agent
+    Skills:
+      - Name: HuntAgent
+        Interfaces:
+          - Agent
+        Settings:
+          Instructions: |-
+            # Mission
+            You are a threat hunting agent. Your job is to analyze
+            recent high-severity alerts and identify patterns.
+
+            # Workflow
+            1. Fetch recent alerts using GetRecentAlerts
+            2. Analyze patterns across alert titles and categories
+            3. Identify any related attack chains
+
+            # Output
+            Produce a markdown report with:
+            - Summary of findings
+            - Top threat patterns
+            - Recommended response actions
+          Model: gpt-4o
+        ChildSkills:
+          - ThreatHunter.GetRecentAlerts
+
+AgentDefinitions:
+  - Name: ThreatHunterAgent
+    DisplayName: Threat Hunter Agent
+    Publisher: Security Team
+    Product: SecurityCopilot
+    RequiredSkillsets:
+      - ThreatHunter    # Must match Descriptor.Name
+    Triggers:
+      - Name: Default
+        DefaultPollPeriodSeconds: "0"
+        ProcessSkill: ThreatHunter.HuntAgent
+```
+
+> **Key points**:
+> - `ChildSkills` uses dot notation: `DescriptorName.SkillName`
+> - `RequiredSkillsets` must include `Descriptor.Name` so the agent can access its own skills
+> - `Instructions` should have `# Mission`, `# Workflow`, and `# Output` sections
+> - Standard agents use `Interfaces: [Agent]`, interactive agents use `Interfaces: [InteractiveAgent]`
+
+---
+
+## Part 5 — Mixed-Format Plugins
+
+Security Copilot supports **mixed-format plugins** — a single manifest with multiple SkillGroups of different types. This is common when agents need child skills in other formats.
+
+### Why Mixed-Format?
+
+- An **Agent** that invokes **KQL** queries and **GPT** analysis in one manifest
+- An **API** plugin bundled with a **GPT** summarization skill
+- Any combination of the six supported formats
+
+### How It Works
+
+List multiple SkillGroups with different `Format` values:
+
+```yaml
+Descriptor:
+  Name: ComprehensiveInvestigator
+  Description: Multi-format investigation plugin.
+
+SkillGroups:
+  - Format: KQL
+    Skills:
+      - Name: QueryAlerts
+        Description: Fetch recent alerts from Defender
+        Settings:
+          Target: Defender
+          Template: |-
+            AlertInfo
+            | where Timestamp > ago(24h)
+            | top 10 by Timestamp desc
+
+  - Format: GPT
+    Skills:
+      - Name: AnalyzeAlerts
+        Description: Analyze alert patterns using AI
+        Settings:
+          ModelName: gpt-4o
+          Template: |-
+            Analyze these security alerts and identify patterns:
+
+            {{alertData}}
+        Inputs:
+          - Name: alertData
+            Description: Alert data to analyze
+
+  - Format: Agent
+    Skills:
+      - Name: InvestigationAgent
+        Interfaces:
+          - Agent
+        Settings:
+          Instructions: |-
+            Orchestrate a full investigation using alerts and analysis.
+          Model: gpt-4o
+        ChildSkills:
+          - ComprehensiveInvestigator.QueryAlerts
+          - ComprehensiveInvestigator.AnalyzeAlerts
+```
+
+### Extension Support for Mixed-Format
+
+The extension fully supports mixed-format plugins:
+
+- **Cursor-relative completions** — IntelliSense adapts to whichever SkillGroup your cursor is in. Inside the KQL block you get `Target`, `Template`; inside GPT you get `ModelName`.
+- **Cursor-relative hover** — hover documentation shows the correct field description for the format at your cursor position.
+- **Cross-format validation** — the extension validates each SkillGroup independently and checks for issues across all formats in the file.
+
+---
+
+## Part 6 — Create a Promptbook
 
 Promptbooks are **Markdown** files that define multi-step investigation workflows in Security Copilot.
 
@@ -249,7 +549,7 @@ The `/SkillName` syntax tells Security Copilot to invoke a specific plugin skill
 
 ---
 
-## Part 4 — Using `sc-` Snippets Reference
+## Part 7 — Using `sc-` Snippets Reference
 
 Here is the complete list of `sc-` snippet prefixes available. Type any of these in the appropriate file type and press **Tab**.
 
@@ -299,7 +599,7 @@ For fields with choices (like `Format`, `Target`, or `ModelName`), a dropdown ap
 
 ---
 
-## Part 5 — Validation & Best Practices
+## Part 8 — Validation & Best Practices
 
 As soon as you start editing a plugin manifest, the extension validates your YAML in real time.
 
@@ -360,6 +660,84 @@ Hover your mouse over any YAML key (e.g., `DescriptionForModel`, `ExamplePrompts
 7. **Cap your KQL results** — always use `| take N` or `| top N by ...` to prevent excessive data transfer
 8. **Use correct time columns** — Defender uses `Timestamp`, Sentinel uses `TimeGenerated`
 9. **Don't put real credentials in manifests** — use `<YOUR-TENANT-ID>` placeholders for TenantId, SubscriptionId, and ClientId
+
+---
+
+## Part 9 — KQL Template Validation in Action
+
+The extension performs **line-specific analysis** of KQL templates, catching errors that would only show up at runtime in Security Copilot. Here's a walkthrough of what the validator catches.
+
+### Example: A KQL Plugin with Common Mistakes
+
+Create this intentionally flawed plugin to see the validator in action:
+
+```yaml
+Descriptor:
+  Name: BadKqlExample
+  Description: Demonstrates KQL validation rules
+
+SkillGroups:
+  - Format: KQL
+    Skills:
+      - Name: FaultyQuery
+        Description: A query with several common mistakes
+        Settings:
+          Target: Defender
+          Template: |-
+            let lookback = ago(7days)
+            DeviceProcessEvents
+            | where TimeGenerated > lookback
+            | where ProcessFileName = "cmd.exe"
+            | sumarize count(), DeviceName
+            | top 10 by count_ |
+```
+
+Open the **Problems** panel (`Ctrl+Shift+M`). You'll see these diagnostics at the exact lines:
+
+| Code | Line | Issue |
+|------|------|-------|
+| **BP030** | `let lookback...` | `let` statement missing semicolon — add `;` at the end |
+| **BP031** | `ago(7days)` | Invalid time unit — use `ago(7d)` not `ago(7days)` |
+| **BP034** | `TimeGenerated` | Wrong time column for Defender — use `Timestamp` instead |
+| **BP035** | `= "cmd.exe"` | Single `=` in where clause — use `==` for equality |
+| **BP036** | `sumarize` | Misspelled operator — should be `summarize` |
+| **BP037** | `count(), DeviceName` | `summarize` mixes aggregation with bare column but no `by` clause |
+| **BP029** | trailing `\|` | Query ends with a dangling pipe — remove it |
+
+### The Corrected Version
+
+```yaml
+          Template: |-
+            let lookback = ago(7d);
+            DeviceProcessEvents
+            | where Timestamp > lookback
+            | where ProcessFileName == "cmd.exe"
+            | summarize count() by DeviceName
+            | top 10 by count_
+```
+
+All diagnostics clear instantly as you fix each issue.
+
+### Additional KQL Checks
+
+The validator also catches:
+
+| Code | What it detects |
+|------|----------------|
+| **BP032** | SQL syntax (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) accidentally used in KQL |
+| **BP033** | Management commands (`.set`, `.drop`, `.create`, `.alter`) — these are prohibited in Security Copilot |
+| **BP038** | Invalid `join kind=` values — only `inner`, `leftouter`, `rightouter`, `fullouter`, `leftanti`, `rightanti`, `leftsemi`, `rightsemi` are valid |
+
+### Document-Level KQL Checks
+
+Beyond line-specific analysis, the extension also checks:
+
+| Code | What it detects |
+|------|----------------|
+| **BP022** | No time filter anywhere in the query (`ago`, `between`, `datetime`, `now`) |
+| **BP023** | No result cap (`take`, `top`, `limit`) — risks returning excessive data |
+| **BP024** | Multi-line query not using `\|-` block scalar indicator |
+| **BP025** | Both `Template` and `TemplateUrl` specified (or neither) |
 
 ---
 
