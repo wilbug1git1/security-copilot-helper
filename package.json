@@ -22,7 +22,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/AzureCopilotForSecurity/security-copilot-helper"
+    "url": "https://github.com/wilbug1git1/security-copilot-helper"
   },
   "engines": {
     "vscode": "^1.109.0"
