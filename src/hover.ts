@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
-import { isSecurityCopilotPlugin, getYamlPath, detectPluginFormat } from './utils';
+import { isSecurityCopilotPlugin, getYamlPath, detectFormatAtLine } from './utils';
 import {
     DESCRIPTOR_FIELDS, SKILLGROUP_FIELDS, GPT_SKILL_FIELDS,
-    KQL_SKILL_FIELDS, API_SKILLGROUP_SETTINGS, INPUT_FIELDS, SETTING_FIELDS, FieldDef
+    KQL_SKILL_FIELDS, API_SKILLGROUP_SETTINGS, INPUT_FIELDS, SETTING_FIELDS,
+    LOGICAPP_SKILL_FIELDS, MCP_SKILLGROUP_SETTINGS, AGENT_SKILL_FIELDS,
+    AGENT_DEFINITION_FIELDS, TRIGGER_FIELDS, SUGGESTED_PROMPT_FIELDS, FieldDef
 } from './schema';
 
 export function registerHoverProvider(context: vscode.ExtensionContext) {
@@ -19,7 +21,7 @@ export function registerHoverProvider(context: vscode.ExtensionContext) {
 
                 const word = document.getText(wordRange);
                 const yamlPath = getYamlPath(text, position.line);
-                const format = detectPluginFormat(text);
+                const format = detectFormatAtLine(text, position.line);
 
                 // Try to find field definition
                 const fieldDef = resolveFieldDef(word, yamlPath, format);
@@ -83,6 +85,12 @@ function resolveFieldDef(
         if (format === 'KQL' && KQL_SKILL_FIELDS[word]) {
             return KQL_SKILL_FIELDS[word];
         }
+        if (format === 'LogicApp' && LOGICAPP_SKILL_FIELDS[word]) {
+            return LOGICAPP_SKILL_FIELDS[word];
+        }
+        if (format === 'Agent' && AGENT_SKILL_FIELDS[word]) {
+            return AGENT_SKILL_FIELDS[word];
+        }
 
         // Check nested Settings children
         if (yamlPath.includes('Settings')) {
@@ -92,12 +100,26 @@ function resolveFieldDef(
             if (format === 'KQL' && KQL_SKILL_FIELDS.Settings?.children?.[word]) {
                 return KQL_SKILL_FIELDS.Settings.children[word];
             }
+            if (format === 'Agent' && AGENT_SKILL_FIELDS.Settings?.children?.[word]) {
+                return AGENT_SKILL_FIELDS.Settings.children[word];
+            }
         }
     }
 
-    // Check API SkillGroup settings
-    if (yamlPath.includes('Settings') && format === 'API') {
-        if (API_SKILLGROUP_SETTINGS[word]) { return API_SKILLGROUP_SETTINGS[word]; }
+    // Check AgentDefinitions fields
+    if (yamlPath.includes('AgentDefinitions')) {
+        if (AGENT_DEFINITION_FIELDS[word]) { return AGENT_DEFINITION_FIELDS[word]; }
+        if (yamlPath.includes('Triggers') && TRIGGER_FIELDS[word]) {
+            return TRIGGER_FIELDS[word];
+        }
+        if (yamlPath.includes('SuggestedPrompts') && SUGGESTED_PROMPT_FIELDS[word]) {
+            return SUGGESTED_PROMPT_FIELDS[word];
+        }
+    }
+
+    // Check MCP SkillGroup settings
+    if (yamlPath.includes('Settings') && format === 'MCP') {
+        if (MCP_SKILLGROUP_SETTINGS[word]) { return MCP_SKILLGROUP_SETTINGS[word]; }
     }
 
     // Check Input fields
@@ -111,7 +133,13 @@ function resolveFieldDef(
     }
 
     // Global fallback (check all registries)
-    const allRegistries = [DESCRIPTOR_FIELDS, SKILLGROUP_FIELDS, GPT_SKILL_FIELDS, KQL_SKILL_FIELDS, INPUT_FIELDS, SETTING_FIELDS, API_SKILLGROUP_SETTINGS];
+    const allRegistries = [
+        DESCRIPTOR_FIELDS, SKILLGROUP_FIELDS, GPT_SKILL_FIELDS, KQL_SKILL_FIELDS,
+        LOGICAPP_SKILL_FIELDS, AGENT_SKILL_FIELDS, AGENT_DEFINITION_FIELDS,
+        TRIGGER_FIELDS, SUGGESTED_PROMPT_FIELDS,
+        INPUT_FIELDS, SETTING_FIELDS,
+        API_SKILLGROUP_SETTINGS, MCP_SKILLGROUP_SETTINGS
+    ];
     for (const registry of allRegistries) {
         if (registry[word]) { return registry[word]; }
     }

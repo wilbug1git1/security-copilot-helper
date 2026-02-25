@@ -39,16 +39,22 @@ Security Copilot: Scaffold New Plugin (Guided Wizard)
 > - `Security Copilot: New API Plugin`
 > - `Security Copilot: New GPT Plugin`
 > - `Security Copilot: New KQL Plugin`
+> - `Security Copilot: New LogicApp Plugin`
+> - `Security Copilot: New MCP Plugin`
+> - `Security Copilot: New Agent`
 
 ### Step 2: Choose Your Plugin Format
 
-The wizard presents three options:
+The wizard presents six options:
 
 | Format | Best for |
 |--------|----------|
 | **API** | Wrapping an existing REST API via OpenAPI spec |
 | **GPT** | Text analysis, summarization, and data transformation using LLM prompts |
 | **KQL** | Querying Microsoft Defender, Sentinel, Log Analytics, or Azure Data Explorer |
+| **LogicApp** | Triggering Azure Logic App workflows for automation, email, Teams actions |
+| **MCP** | Connecting to remote MCP servers (Model Context Protocol) |
+| **Agent** | Autonomous or interactive multi-step investigations and orchestration |
 
 Select the format that matches your use case. For this tutorial, let's pick **KQL**.
 
@@ -69,7 +75,10 @@ ThreatHuntingQueries
 
 Choose from:
 - **ApiKey** — API key in a header or query string
-- **AAD** — Microsoft Entra ID (Azure AD)
+- **AAD** — Microsoft Entra ID (application-only)
+- **AADDelegated** — Microsoft Entra ID (user + application delegated)
+- **OAuthAuthorizationCodeFlow** — OAuth 2.0 Authorization Code (interactive)
+- **OAuthClientCredentialsFlow** — OAuth 2.0 Client Credentials (server-to-server)
 - **Basic** — Username/password
 - **None** — No authentication required
 
@@ -252,13 +261,22 @@ Here is the complete list of `sc-` snippet prefixes available. Type any of these
 | `sc-gpt-plugin` | Complete GPT plugin manifest with a skill, input, model, and template |
 | `sc-kql-plugin` | Complete KQL plugin manifest targeting Defender |
 | `sc-kql-sentinel` | Complete KQL plugin with Sentinel workspace settings (TenantId, SubscriptionId, etc.) |
+| `sc-logicapp-plugin` | Complete LogicApp plugin manifest with workflow settings |
+| `sc-mcp-plugin` | Complete MCP plugin manifest with endpoint and AllowedTools |
+| `sc-agent` | Complete standard Agent manifest with AgentDefinitions and KQL child skill |
+| `sc-agent-interactive` | Complete interactive Agent with chat experience, SuggestedPrompts |
 | `sc-skill-gpt` | Add a GPT skill block (Name, Description, Inputs, ModelName, Template) |
 | `sc-skill-kql` | Add a KQL skill block (Name, Description, Inputs, Target, Template) |
+| `sc-skill-logicapp` | Add a LogicApp skill with workflow settings |
+| `sc-skill-mcp` | Add an MCP skill group with Endpoint and AllowedTools |
+| `sc-skill-agent` | Add an Agent orchestration skill with Instructions and ChildSkills |
 | `sc-input` | Add an input parameter (Name, Description, DefaultValue, Required) |
 | `sc-setting` | Add a user-configurable setting (Name, Label, Description, HintText, SettingType) |
 | `sc-auth-apikey` | Add API Key authorization block |
 | `sc-auth-oauth` | Add OAuth authorization block (ClientId, endpoints, scopes) |
 | `sc-auth-entra` | Add Entra ID (AAD) authorization block |
+| `sc-auth-aad-delegated` | Add Entra ID delegated (user + application) authorization |
+| `sc-auth-oauth-clientcreds` | Add OAuth 2.0 Client Credentials authorization |
 
 ### Markdown Snippets (for promptbooks)
 
@@ -320,11 +338,16 @@ Hover your mouse over any YAML key (e.g., `DescriptionForModel`, `ExamplePrompts
 | SEC002 | Add a `SkillGroups:` section |
 | SEC003 | Add `Name` inside `Descriptor` |
 | SEC004 | Add `Description` inside `Descriptor` |
-| SEC005 | Your `Format` value is invalid — use `API`, `GPT`, or `KQL` |
+| SEC005 | Your `Format` value is invalid — use `API`, `GPT`, `KQL`, `LogicApp`, `MCP`, or `Agent` |
 | SEC009 | A `{{variable}}` in your template doesn't match any declared Input or Setting |
 | BP002 | Add `DescriptionForModel` — this helps the AI pick your skill more accurately |
 | BP003 | Add `ExamplePrompts` — natural language examples that trigger your skill |
 | BP010 | Remove spaces from `Descriptor.Name` — use PascalCase |
+| BP022 | KQL query missing time filter — add `ago()`, `between()`, or `datetime()` |
+| BP029 | Trailing pipe at end of KQL query — remove the dangling `\|` |
+| BP030 | KQL `let` statement missing semicolon (`;`) |
+| BP031 | Invalid time unit in `ago()` — use `7d` not `7days` |
+| BP036 | Misspelled KQL operator — e.g., `sumarize` → `summarize` |
 
 ### Best Practice Tips
 
@@ -333,6 +356,10 @@ Hover your mouse over any YAML key (e.g., `DescriptionForModel`, `ExamplePrompts
 3. **Don't put real IPs or emails in ExamplePrompts** — it hurts skill selection accuracy
 4. **Use `DisplayName`** — it makes your plugin look polished in the UI
 5. **For Sentinel plugins**, always include the four workspace settings (TenantId, SubscriptionId, ResourceGroupName, WorkspaceName) — use `sc-kql-sentinel` to get them automatically
+6. **Use `|-` for multi-line KQL templates** — inline templates without block scalar indicators cause YAML parsing issues
+7. **Cap your KQL results** — always use `| take N` or `| top N by ...` to prevent excessive data transfer
+8. **Use correct time columns** — Defender uses `Timestamp`, Sentinel uses `TimeGenerated`
+9. **Don't put real credentials in manifests** — use `<YOUR-TENANT-ID>` placeholders for TenantId, SubscriptionId, and ClientId
 
 ---
 

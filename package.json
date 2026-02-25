@@ -1,7 +1,7 @@
 {
   "name": "security-copilot-helper",
   "displayName": "Security Copilot Plugin Helper",
-  "description": "Build Microsoft Security Copilot custom plugins (API, GPT, KQL) and promptbooks with real-time validation, IntelliSense, snippets, scaffolding wizard, and best-practice guidance.",
+  "description": "Build Microsoft Security Copilot custom plugins (API, GPT, KQL, LogicApp, MCP, Agent) and promptbooks with real-time validation, IntelliSense, snippets, scaffolding wizard, and best-practice guidance.",
   "version": "0.1.0",
   "publisher": "security-copilot-community",
   "author": {
@@ -91,6 +91,21 @@
         "category": "Security Copilot"
       },
       {
+        "command": "securityCopilot.newLogicAppPlugin",
+        "title": "New LogicApp Plugin",
+        "category": "Security Copilot"
+      },
+      {
+        "command": "securityCopilot.newMcpPlugin",
+        "title": "New MCP Plugin",
+        "category": "Security Copilot"
+      },
+      {
+        "command": "securityCopilot.newAgent",
+        "title": "New Agent",
+        "category": "Security Copilot"
+      },
+      {
         "command": "securityCopilot.newPromptbook",
         "title": "New Promptbook",
         "category": "Security Copilot"
@@ -103,6 +118,9 @@
         { "command": "securityCopilot.newApiPlugin" },
         { "command": "securityCopilot.newGptPlugin" },
         { "command": "securityCopilot.newKqlPlugin" },
+        { "command": "securityCopilot.newLogicAppPlugin" },
+        { "command": "securityCopilot.newMcpPlugin" },
+        { "command": "securityCopilot.newAgent" },
         { "command": "securityCopilot.newPromptbook" }
       ]
     },

@@ -4,17 +4,27 @@ import * as path from 'path';
 // ─── Scaffold wizard options ─────────────────────────────────────────────────
 
 interface ScaffoldOptions {
-    format: 'API' | 'GPT' | 'KQL';
+    format: 'API' | 'GPT' | 'KQL' | 'LogicApp' | 'MCP' | 'Agent';
     name: string;
     displayName: string;
     description: string;
-    authType: 'ApiKey' | 'Basic' | 'AAD' | 'None';
+    authType: 'ApiKey' | 'Basic' | 'AAD' | 'AADDelegated' | 'OAuthAuthorizationCodeFlow' | 'OAuthClientCredentialsFlow' | 'None';
     // KQL-specific
     kqlTarget?: 'Defender' | 'Sentinel' | 'LogAnalytics' | 'Kusto';
     // API-specific
     openApiSpecUrl?: string;
     // GPT-specific
     modelName?: string;
+    // LogicApp-specific
+    subscriptionId?: string;
+    resourceGroup?: string;
+    workflowName?: string;
+    triggerName?: string;
+    // MCP-specific
+    mcpEndpoint?: string;
+    // Agent-specific
+    agentType?: 'Standard' | 'Interactive';
+    agentModel?: string;
 }
 
 interface PromptbookOptions {
@@ -74,6 +84,21 @@ export function registerCommands(context: vscode.ExtensionContext) {
             await scaffoldPluginWizard('KQL');
         })
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('securityCopilot.newLogicAppPlugin', async () => {
+            await scaffoldPluginWizard('LogicApp');
+        })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('securityCopilot.newMcpPlugin', async () => {
+            await scaffoldPluginWizard('MCP');
+        })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('securityCopilot.newAgent', async () => {
+            await scaffoldPluginWizard('Agent');
+        })
+    );
 
     // Promptbook scaffold
     context.subscriptions.push(
@@ -85,20 +110,23 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
 // ─── Plugin scaffold wizard ──────────────────────────────────────────────────
 
-async function scaffoldPluginWizard(preselectedFormat?: 'API' | 'GPT' | 'KQL') {
+async function scaffoldPluginWizard(preselectedFormat?: ScaffoldOptions['format']) {
     // Step 1: Choose format (unless pre-selected)
     let format = preselectedFormat;
     if (!format) {
         const pick = await vscode.window.showQuickPick(
             [
-                { label: 'API',  description: 'Wrap an external REST API via OpenAPI spec',         detail: 'Best for: existing APIs, third-party integrations' },
-                { label: 'GPT',  description: 'Use the LLM to process prompts via templates',       detail: 'Best for: text analysis, summarization, data transformation' },
-                { label: 'KQL',  description: 'Run KQL queries against Defender/Sentinel/Kusto',    detail: 'Best for: log queries, threat hunting, data retrieval' },
+                { label: 'API',      description: 'Wrap an external REST API via OpenAPI spec',         detail: 'Best for: existing APIs, third-party integrations' },
+                { label: 'GPT',      description: 'Use the LLM to process prompts via templates',       detail: 'Best for: text analysis, summarization, data transformation' },
+                { label: 'KQL',      description: 'Run KQL queries against Defender/Sentinel/Kusto',    detail: 'Best for: log queries, threat hunting, data retrieval' },
+                { label: 'LogicApp', description: 'Trigger an Azure Logic App workflow',                 detail: 'Best for: automation, email, Teams, external actions' },
+                { label: 'MCP',      description: 'Connect to an MCP server (Model Context Protocol)',   detail: 'Best for: remote tool servers, existing MCP endpoints' },
+                { label: 'Agent',    description: 'Autonomous or interactive agent with orchestration',  detail: 'Best for: multi-step investigations, automated workflows' },
             ],
             { title: 'Security Copilot — New Plugin (Step 1/5)', placeHolder: 'Choose the plugin format' }
         );
         if (!pick) { return; }
-        format = pick.label as 'API' | 'GPT' | 'KQL';
+        format = pick.label as ScaffoldOptions['format'];
     }
 
     // Step 2: Plugin name
@@ -132,7 +160,10 @@ async function scaffoldPluginWizard(preselectedFormat?: 'API' | 'GPT' | 'KQL') {
     const authPick = await vscode.window.showQuickPick(
         [
             { label: 'ApiKey',  description: 'API key in header or query string' },
-            { label: 'AAD',     description: 'Microsoft Entra ID (Azure AD) authentication' },
+            { label: 'AAD',     description: 'Microsoft Entra ID — application only' },
+            { label: 'AADDelegated', description: 'Microsoft Entra ID — user + application (delegated)' },
+            { label: 'OAuthAuthorizationCodeFlow', description: 'OAuth 2.0 Authorization Code (interactive user)' },
+            { label: 'OAuthClientCredentialsFlow', description: 'OAuth 2.0 Client Credentials (server-to-server)' },
             { label: 'Basic',   description: 'Basic username/password auth' },
             { label: 'None',    description: 'No authentication (or settings-only plugin)' },
         ],
@@ -171,6 +202,7 @@ async function scaffoldPluginWizard(preselectedFormat?: 'API' | 'GPT' | 'KQL') {
         const modelPick = await vscode.window.showQuickPick(
             [
                 { label: 'gpt-4o',            description: 'Recommended — fast and capable' },
+                { label: 'gpt-4.1',           description: 'Latest GPT-4.1 model (used by agents)' },
                 { label: 'gpt-4',             description: 'GPT-4 base model' },
                 { label: 'gpt-4o-mini',       description: 'Smaller / cheaper variant' },
                 { label: 'gpt-4-32k-v0613',   description: 'Extended context window' },
@@ -180,7 +212,78 @@ async function scaffoldPluginWizard(preselectedFormat?: 'API' | 'GPT' | 'KQL') {
         modelName = modelPick?.label ?? 'gpt-4o';
     }
 
-    const options: ScaffoldOptions = { format, name, displayName, description, authType, kqlTarget, openApiSpecUrl, modelName };
+    // LogicApp-specific options
+    let subscriptionId: string | undefined;
+    let resourceGroup: string | undefined;
+    let workflowName: string | undefined;
+    let triggerName: string | undefined;
+
+    if (format === 'LogicApp') {
+        subscriptionId = await vscode.window.showInputBox({
+            title: `Security Copilot — New LogicApp Plugin (Step 5/5)`,
+            prompt: 'Azure Subscription ID',
+            placeHolder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+        }) ?? '<YOUR-SUBSCRIPTION-ID>';
+        resourceGroup = await vscode.window.showInputBox({
+            title: `Security Copilot — New LogicApp Plugin (Step 5/5)`,
+            prompt: 'Resource Group name',
+            placeHolder: 'my-resource-group',
+        }) ?? '<YOUR-RESOURCE-GROUP>';
+        workflowName = await vscode.window.showInputBox({
+            title: `Security Copilot — New LogicApp Plugin (Step 5/5)`,
+            prompt: 'Logic App Workflow name',
+            placeHolder: 'MyLogicApp',
+        }) ?? 'MyLogicApp';
+        triggerName = await vscode.window.showInputBox({
+            title: `Security Copilot — New LogicApp Plugin (Step 5/5)`,
+            prompt: 'Trigger name (usually "manual" for HTTP trigger)',
+            placeHolder: 'manual',
+            value: 'manual',
+        }) ?? 'manual';
+    }
+
+    // MCP-specific options
+    let mcpEndpoint: string | undefined;
+
+    if (format === 'MCP') {
+        mcpEndpoint = await vscode.window.showInputBox({
+            title: `Security Copilot — New MCP Plugin (Step 5/5)`,
+            prompt: 'MCP server endpoint URL',
+            placeHolder: 'https://example.com/api/mcp',
+            value: 'https://example.com/api/mcp',
+        }) ?? 'https://example.com/api/mcp';
+    }
+
+    // Agent-specific options
+    let agentType: 'Standard' | 'Interactive' | undefined;
+    let agentModel: string | undefined;
+
+    if (format === 'Agent') {
+        const agentTypePick = await vscode.window.showQuickPick(
+            [
+                { label: 'Standard',    description: 'Autonomous agent — runs on trigger, produces reports', detail: 'Executes autonomously and produces structured output' },
+                { label: 'Interactive',  description: 'Chat agent — responds to user questions in Copilot', detail: 'Users interact via chat, with suggested prompts' },
+            ],
+            { title: `Security Copilot — New Agent (Step 5a/5)`, placeHolder: 'Choose agent type' }
+        );
+        agentType = (agentTypePick?.label ?? 'Standard') as 'Standard' | 'Interactive';
+
+        const agentModelPick = await vscode.window.showQuickPick(
+            [
+                { label: 'gpt-4o',   description: 'Recommended — fast and capable' },
+                { label: 'gpt-4.1',  description: 'Latest GPT-4.1 model' },
+            ],
+            { title: `Security Copilot — New Agent (Step 5b/5)`, placeHolder: 'Choose agent model' }
+        );
+        agentModel = agentModelPick?.label ?? 'gpt-4o';
+    }
+
+    const options: ScaffoldOptions = {
+        format, name, displayName, description, authType,
+        kqlTarget, openApiSpecUrl, modelName,
+        subscriptionId, resourceGroup, workflowName, triggerName,
+        mcpEndpoint, agentType, agentModel,
+    };
 
     // === Create files on disk ===
     await writeScaffold(options);
@@ -349,6 +452,17 @@ function buildManifest(opts: ScaffoldOptions): string {
         yaml += buildGptSkillGroup(opts);
     } else if (opts.format === 'KQL') {
         yaml += buildKqlSkillGroup(opts);
+    } else if (opts.format === 'LogicApp') {
+        yaml += buildLogicAppSkillGroup(opts);
+    } else if (opts.format === 'MCP') {
+        yaml += buildMcpSkillGroup(opts);
+    } else if (opts.format === 'Agent') {
+        yaml += buildAgentSkillGroup(opts);
+    }
+
+    // ── Agent Definitions (Agent format only) ────────────────────────────────
+    if (opts.format === 'Agent') {
+        yaml = buildAgentManifest(opts);
     }
 
     return yaml;
@@ -372,6 +486,23 @@ function buildAuthBlock(opts: ScaffoldOptions): string {
         case 'AAD':
             s += `    Type: AAD\n`;
             s += `    EntraScopes: https://graph.microsoft.com/.default\n`;
+            break;
+        case 'AADDelegated':
+            s += `    Type: AADDelegated\n`;
+            s += `    EntraScopes: https://graph.microsoft.com/.default\n`;
+            break;
+        case 'OAuthAuthorizationCodeFlow':
+            s += `    Type: OAuthAuthorizationCodeFlow\n`;
+            s += `    ClientId: <YOUR-CLIENT-ID>\n`;
+            s += `    AuthorizationEndpoint: https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/authorize\n`;
+            s += `    TokenEndpoint: https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/token\n`;
+            s += `    Scopes: offline_access User.Read.All\n`;
+            s += `    AuthorizationContentType: application/x-www-form-urlencoded\n`;
+            break;
+        case 'OAuthClientCredentialsFlow':
+            s += `    Type: OAuthClientCredentialsFlow\n`;
+            s += `    TokenEndpoint: https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/token\n`;
+            s += `    AuthorizationContentType: application/x-www-form-urlencoded\n`;
             break;
         case 'Basic':
             s += `    Type: Basic\n`;
@@ -624,6 +755,166 @@ function getKqlTemplateQueries(target: string, name: string) {
     };
 }
 
+// ── LogicApp, MCP, Agent skill group builders ────────────────────────────────
+
+function buildLogicAppSkillGroup(opts: ScaffoldOptions): string {
+    return `  - Format: LogicApp
+    Skills:
+      - Name: ${opts.name}Trigger
+        DisplayName: "${opts.displayName} — Trigger"
+        Description: >
+          Triggers the ${opts.displayName} Logic App workflow.
+        DescriptionForModel: |
+          Use this skill when the user wants to trigger the ${opts.displayName} workflow.
+        ExamplePrompts:
+          - "Run ${opts.displayName}"
+          - "Trigger ${opts.displayName} workflow"
+        Inputs:
+          - Name: inputData
+            Description: The data to pass to the Logic App
+            Required: true
+        Settings:
+          SubscriptionId: ${opts.subscriptionId || '<YOUR-SUBSCRIPTION-ID>'}
+          ResourceGroup: ${opts.resourceGroup || '<YOUR-RESOURCE-GROUP>'}
+          WorkflowName: ${opts.workflowName || 'MyLogicApp'}
+          TriggerName: ${opts.triggerName || 'manual'}
+`;
+}
+
+function buildMcpSkillGroup(opts: ScaffoldOptions): string {
+    return `  - Format: MCP
+    Settings:
+      Endpoint: ${opts.mcpEndpoint || 'https://example.com/api/mcp'}
+      TimeoutInSeconds: 120
+      # AllowedTools: tool_name_1, tool_name_2   # Uncomment to restrict which tools Copilot can use
+`;
+}
+
+function buildAgentSkillGroup(opts: ScaffoldOptions): string {
+    const model = opts.agentModel || 'gpt-4o';
+    const isInteractive = opts.agentType === 'Interactive';
+
+    let yaml = '';
+    yaml += `  - Format: Agent\n`;
+    yaml += `    Skills:\n`;
+    yaml += `      - Name: ${opts.name}Skill\n`;
+    yaml += `        DisplayName: "${opts.displayName} — Orchestrator"\n`;
+    yaml += `        Description: >\n`;
+    yaml += `          Main orchestration skill for the ${opts.displayName} agent.\n`;
+    yaml += `        Interfaces:\n`;
+    yaml += `          - ${isInteractive ? 'InteractiveAgent' : 'Agent'}\n`;
+
+    // Interactive agents need a UserRequest input
+    if (isInteractive) {
+        yaml += `        Inputs:\n`;
+        yaml += `          - Name: UserRequest\n`;
+        yaml += `            Description: The user's question or request.\n`;
+        yaml += `            DefaultValue: ''\n`;
+        yaml += `            Required: true\n`;
+        yaml += `        SuggestedPrompts:\n`;
+        yaml += `          - Prompt: Show me an overview of recent security activity\n`;
+        yaml += `            Title: Security Overview\n`;
+        yaml += `            Personas:\n`;
+        yaml += `              - 1\n`;
+        yaml += `            IsStarterAgent: true\n`;
+        yaml += `          - Prompt: Tell me more about the findings\n`;
+    }
+
+    yaml += `        Settings:\n`;
+    if (isInteractive) {
+        yaml += `          OrchestratorSkill: DefaultAgentOrchestrator\n`;
+    }
+    yaml += `          Model: ${model}\n`;
+    yaml += `          Instructions: >-\n`;
+    yaml += `            # Mission\n`;
+    yaml += `            You are a security analyst agent for ${opts.displayName}.\n`;
+    yaml += `\n`;
+    yaml += `            # Workflow\n`;
+    yaml += `            1. Gather initial context using available child skills\n`;
+    yaml += `            2. Analyze the data for security implications\n`;
+    yaml += `            3. Formulate findings and recommendations\n`;
+    yaml += `\n`;
+    yaml += `            # Output\n`;
+    yaml += `            Provide a structured report with Summary, Findings, and Recommendations.\n`;
+    yaml += `        ChildSkills:\n`;
+    yaml += `          - ${opts.name}Query\n`;
+    yaml += `\n`;
+
+    // Add a sample KQL child skill
+    yaml += `  - Format: KQL\n`;
+    yaml += `    Skills:\n`;
+    yaml += `      - Name: ${opts.name}Query\n`;
+    yaml += `        DisplayName: "${opts.displayName} — Data Query"\n`;
+    yaml += `        Description: >\n`;
+    yaml += `          Retrieves recent security data for the agent to analyze.\n`;
+    yaml += `        Inputs:\n`;
+    yaml += `          - Name: timeRange\n`;
+    yaml += `            Description: How far back to look (e.g. 1h, 24h, 7d)\n`;
+    yaml += `            DefaultValue: "7d"\n`;
+    yaml += `            Required: false\n`;
+    yaml += `        Settings:\n`;
+    yaml += `          Target: Defender\n`;
+    yaml += `          Template: |-\n`;
+    yaml += `            AlertInfo\n`;
+    yaml += `            | where TimeGenerated > ago({{timeRange}})\n`;
+    yaml += `            | where Severity in ("High", "Critical")\n`;
+    yaml += `            | project AlertId, Title, Severity, Category, TimeGenerated\n`;
+    yaml += `            | order by TimeGenerated desc\n`;
+    yaml += `            | take 50\n`;
+
+    return yaml;
+}
+
+function buildAgentManifest(opts: ScaffoldOptions): string {
+    const isInteractive = opts.agentType === 'Interactive';
+
+    let yaml = '';
+
+    // ── Header comment ───────────────────────────────────────────────────────
+    yaml += `# =========================================================================\n`;
+    yaml += `# Security Copilot Agent — ${opts.displayName}\n`;
+    yaml += `# =========================================================================\n`;
+    yaml += `# Type:    ${isInteractive ? 'Interactive' : 'Standard'} Agent\n`;
+    yaml += `# Docs:    https://learn.microsoft.com/security-copilot/extend/\n`;
+    yaml += `#\n`;
+    yaml += `# To install: Upload this file to Security Copilot > Settings > Plugins\n`;
+    yaml += `# =========================================================================\n\n`;
+
+    // ── Descriptor ───────────────────────────────────────────────────────────
+    yaml += `Descriptor:\n`;
+    yaml += `  Name: ${opts.name}\n`;
+    yaml += `  DisplayName: "${opts.displayName}"\n`;
+    yaml += `  Description: >\n`;
+    yaml += `    ${opts.description}\n\n`;
+
+    // ── AgentDefinitions ─────────────────────────────────────────────────────
+    yaml += `AgentDefinitions:\n`;
+    yaml += `  - Name: ${opts.name}\n`;
+    yaml += `    DisplayName: "${opts.displayName}"\n`;
+    yaml += `    Description: >\n`;
+    yaml += `      ${opts.description}\n`;
+    yaml += `    Publisher: Custom\n`;
+    yaml += `    Product: Security\n`;
+    yaml += `    RequiredSkillsets:\n`;
+    yaml += `      - ${opts.name}\n`;
+    yaml += `    AgentSingleInstanceConstraint: None\n`;
+    yaml += `    Triggers:\n`;
+    yaml += `      - Name: Default\n`;
+    yaml += `        DefaultPollPeriodSeconds: 0\n`;
+    yaml += `        ProcessSkill: ${opts.name}.${opts.name}Skill\n`;
+    yaml += `        FetchSkill: ''\n`;
+    if (isInteractive) {
+        yaml += `    PromptSkill: ${opts.name}.${opts.name}Skill\n`;
+    }
+    yaml += `\n`;
+
+    // ── SkillGroups ──────────────────────────────────────────────────────────
+    yaml += `SkillGroups:\n`;
+    yaml += buildAgentSkillGroup(opts);
+
+    return yaml;
+}
+
 // ─── Promptbook builder ──────────────────────────────────────────────────────
 
 function buildPromptbook(opts: PromptbookOptions): string {
@@ -684,7 +975,10 @@ function buildPluginReadme(opts: ScaffoldOptions): string {
     let authSection = '';
     switch (opts.authType) {
         case 'ApiKey': authSection = 'This plugin requires an **API key**. You will be prompted for it when installing.'; break;
-        case 'AAD':    authSection = 'This plugin uses **Microsoft Entra ID** authentication.'; break;
+        case 'AAD':    authSection = 'This plugin uses **Microsoft Entra ID** (application-only) authentication.'; break;
+        case 'AADDelegated': authSection = 'This plugin uses **Microsoft Entra ID** delegated (user + application) authentication.'; break;
+        case 'OAuthAuthorizationCodeFlow': authSection = 'This plugin uses **OAuth 2.0 Authorization Code** authentication. Users will sign in interactively.'; break;
+        case 'OAuthClientCredentialsFlow': authSection = 'This plugin uses **OAuth 2.0 Client Credentials** (server-to-server) authentication.'; break;
         case 'Basic':  authSection = 'This plugin uses **Basic** (username/password) authentication.'; break;
         case 'None':   authSection = 'This plugin does not require authentication.'; break;
     }
@@ -723,14 +1017,14 @@ ${targetSection}
 
 | Skill | Description |
 |-------|-------------|
-${opts.format === 'GPT' ? `| ${opts.name}Analyze | Analyzes input data and provides a security assessment |\n| ${opts.name}Summarize | Generates executive summaries |` : ''}${opts.format === 'KQL' ? `| ${opts.name}RecentAlerts | Retrieves recent high/critical severity alerts |\n| ${opts.name}UserActivity | Looks up activity for a specific user |` : ''}${opts.format === 'API' ? `| (defined by OpenAPI spec) | Skills are derived from your OpenAPI operations |` : ''}
+${opts.format === 'GPT' ? `| ${opts.name}Analyze | Analyzes input data and provides a security assessment |\n| ${opts.name}Summarize | Generates executive summaries |` : ''}${opts.format === 'KQL' ? `| ${opts.name}RecentAlerts | Retrieves recent high/critical severity alerts |\n| ${opts.name}UserActivity | Looks up activity for a specific user |` : ''}${opts.format === 'API' ? `| (defined by OpenAPI spec) | Skills are derived from your OpenAPI operations |` : ''}${opts.format === 'LogicApp' ? `| ${opts.name}Trigger | Triggers the Logic App workflow |` : ''}${opts.format === 'MCP' ? `| (defined by MCP server) | Tools are auto-discovered from the MCP endpoint |` : ''}${opts.format === 'Agent' ? `| ${opts.name}Skill | Main agent orchestration skill |\n| ${opts.name}Query | KQL child skill for data retrieval |` : ''}
 
 ## Files
 
 | File | Description |
 |------|-------------|
 | \`${opts.name.toLowerCase()}-manifest.yaml\` | Plugin manifest (upload this to Security Copilot) |
-${opts.format === 'API' ? `| \`openapi.yaml\` | OpenAPI specification (host this at a public URL) |` : ''}${opts.format === 'GPT' ? `| \`${opts.name.toLowerCase()}-template.txt\` | Sample prompt template |` : ''}${opts.format === 'KQL' ? `| \`${opts.name.toLowerCase()}-query.kql\` | Sample KQL queries for reference |` : ''}
+${opts.format === 'API' ? `| \`openapi.yaml\` | OpenAPI specification (host this at a public URL) |` : ''}${opts.format === 'GPT' ? `| \`${opts.name.toLowerCase()}-template.txt\` | Sample prompt template |` : ''}${opts.format === 'KQL' ? `| \`${opts.name.toLowerCase()}-query.kql\` | Sample KQL queries for reference |` : ''}${opts.format === 'Agent' ? `| \`README.md\` | This documentation file |` : ''}${opts.format === 'LogicApp' ? `| \`README.md\` | This documentation file |` : ''}${opts.format === 'MCP' ? `| \`README.md\` | This documentation file |` : ''}
 
 ## Resources
 

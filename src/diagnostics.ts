@@ -1,6 +1,19 @@
 import * as vscode from 'vscode';
-import { isSecurityCopilotPlugin, detectPluginFormat, findLineNumber } from './utils';
+import { isSecurityCopilotPlugin, detectPluginFormat, detectAllPluginFormats, findLineNumber } from './utils';
 import { BEST_PRACTICES } from './schema';
+
+/** Misspelled KQL operators and their corrections */
+const KQL_MISSPELLINGS: [RegExp, string][] = [
+    [/\bsumarize\b/i, 'summarize'],
+    [/\bsummerize\b/i, 'summarize'],
+    [/\bsummurize\b/i, 'summarize'],
+    [/\bporject\b/i, 'project'],
+    [/\bproejct\b/i, 'project'],
+    [/\brendor\b/i, 'render'],
+    [/\bmakeset\b(?!\s*\()/i, 'make_set'],
+    [/\bmakelist\b(?!\s*\()/i, 'make_list'],
+    [/\|\s*select\b/i, 'project (not SQL SELECT)'],
+];
 
 const DIAGNOSTIC_SOURCE = 'Security Copilot';
 
@@ -35,6 +48,9 @@ export function registerDiagnostics(context: vscode.ExtensionContext) {
         // === Template Variable Validation ===
         validateTemplateVariables(text, document, diagnostics);
 
+        // === KQL Template Validation (line-specific) ===
+        validateKqlTemplates(text, document, diagnostics);
+
         diagnosticCollection.set(document.uri, diagnostics);
     };
 
@@ -60,10 +76,10 @@ function validateStructure(text: string, document: vscode.TextDocument, diagnost
         ));
     }
 
-    if (!/^\s*SkillGroups\s*:/m.test(text)) {
+    if (!/^\s*SkillGroups\s*:/m.test(text) && !/^\s*AgentDefinitions\s*:/m.test(text)) {
         diagnostics.push(createDiagnostic(
             lines.length - 1, 0, lines.length - 1, 10,
-            'Missing required top-level key: SkillGroups',
+            'Missing required top-level key: SkillGroups (or AgentDefinitions for agents)',
             vscode.DiagnosticSeverity.Error,
             'SEC002'
         ));
@@ -96,11 +112,11 @@ function validateStructure(text: string, document: vscode.TextDocument, diagnost
     const formatMatches = text.matchAll(/^(\s*)Format\s*:\s*(\S+)/gm);
     for (const match of formatMatches) {
         const format = match[2];
-        if (!['API', 'GPT', 'KQL'].includes(format)) {
+        if (!['API', 'GPT', 'KQL', 'LogicApp', 'MCP', 'Agent'].includes(format)) {
             const line = findLineNumber(text, new RegExp(`Format\\s*:\\s*${format}`));
             diagnostics.push(createDiagnostic(
                 line, 0, line, lines[line]?.length || 20,
-                `Invalid Format value "${format}". Must be one of: API, GPT, KQL`,
+                `Invalid Format value "${format}". Must be one of: API, GPT, KQL, LogicApp, MCP, Agent`,
                 vscode.DiagnosticSeverity.Error,
                 'SEC005'
             ));
@@ -111,7 +127,7 @@ function validateStructure(text: string, document: vscode.TextDocument, diagnost
     const authTypePattern = /SupportedAuthTypes\s*:\s*\n(\s*-\s*.+\n)+/g;
     const authMatch = authTypePattern.exec(text);
     if (authMatch) {
-        const validAuthTypes = ['ApiKey', 'Basic', 'AAD', 'None'];
+        const validAuthTypes = ['ApiKey', 'Basic', 'AAD', 'AADDelegated', 'OAuthAuthorizationCodeFlow', 'OAuthClientCredentialsFlow', 'ServiceHttp', 'None'];
         const authLines = authMatch[0].matchAll(/-\s*(\S+)/g);
         for (const authLine of authLines) {
             if (!validAuthTypes.includes(authLine[1])) {
@@ -142,18 +158,18 @@ function validateStructure(text: string, document: vscode.TextDocument, diagnost
         }
     }
 
-    // Check GPT ModelName values
-    const pluginFormat = detectPluginFormat(text);
-    if (pluginFormat === 'GPT') {
-        const modelMatches = text.matchAll(/ModelName\s*:\s*(\S+)/gm);
-        const validModels = ['gpt-4o', 'gpt-4-32k-v0613', 'gpt-4', 'gpt-4o-mini'];
+    // Check GPT / Agent ModelName values
+    const allFormats = detectAllPluginFormats(text);
+    if (allFormats.includes('GPT') || allFormats.includes('Agent')) {
+        const modelMatches = text.matchAll(/(?:ModelName|Model)\s*:\s*(\S+)/gm);
+        const validModels = ['gpt-4o', 'gpt-4.1', 'gpt-4-32k-v0613', 'gpt-4', 'gpt-4o-mini'];
         for (const match of modelMatches) {
             const model = match[1].replace(/['"]/g, '');
             if (!validModels.includes(model)) {
-                const line = findLineNumber(text, new RegExp(`ModelName\\s*:\\s*${match[1].replace(/[-.]/g, '\\$&')}`));
+                const line = findLineNumber(text, new RegExp(`(?:ModelName|Model)\\s*:\\s*${match[1].replace(/[\-\.]/g, '\\$&')}`));
                 diagnostics.push(createDiagnostic(
                     line, 0, line, lines[line]?.length || 20,
-                    `Unknown ModelName "${model}". Common values: ${validModels.join(', ')}`,
+                    `Unknown model "${model}". Common values: ${validModels.join(', ')}`,
                     vscode.DiagnosticSeverity.Warning,
                     'SEC008'
                 ));
@@ -221,6 +237,211 @@ function validateTemplateVariables(text: string, document: vscode.TextDocument, 
             }
         }
     }
+}
+
+function validateKqlTemplates(text: string, document: vscode.TextDocument, diagnostics: vscode.Diagnostic[]) {
+    const allFormats = detectAllPluginFormats(text);
+    if (!allFormats.includes('KQL')) { return; }
+
+    const lines = text.split('\n');
+
+    // Find all KQL template regions: lines belonging to a Template: |- block
+    const templateRegions = findKqlTemplateRegions(lines, text);
+
+    // Detect Target for time-column checks
+    const targetMatch = text.match(/Target\s*:\s*(\w+)/);
+    const target = targetMatch ? targetMatch[1] : '';
+
+    for (const region of templateRegions) {
+        const { startLine, endLine } = region;
+
+        // BP029: Trailing pipe at end of KQL query
+        for (let i = endLine; i >= startLine; i--) {
+            if (lines[i].trim() !== '') {
+                if (/\|\s*$/.test(lines[i].trim())) {
+                    diagnostics.push(createDiagnostic(
+                        i, 0, i, lines[i].length,
+                        '[BP029] KQL query ends with a trailing pipe (|). This causes a runtime parse error.',
+                        vscode.DiagnosticSeverity.Error,
+                        'BP029'
+                    ));
+                }
+                break;
+            }
+        }
+
+        for (let i = startLine; i <= endLine; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            if (trimmed === '') { continue; }
+
+            // BP030: let statement missing semicolon
+            if (/^\s*let\s+\w+\s*=/i.test(line) && !/;\s*$/.test(trimmed) && !/;\s*\/\//.test(trimmed)) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    '[BP030] KQL `let` statement does not end with a semicolon (;). All let statements must be terminated.',
+                    vscode.DiagnosticSeverity.Error,
+                    'BP030'
+                ));
+            }
+
+            // BP031: Invalid time unit in ago()
+            const agoMatch = line.match(/\bago\s*\(\s*\d+\s*(days?|hours?|hrs?|minutes?|mins?|seconds?|secs?|weeks?|months?|years?)\s*\)/i);
+            if (agoMatch) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    `[BP031] Invalid time unit "${agoMatch[1]}" in ago(). Use short forms: d (days), h (hours), m (minutes), s (seconds), ms (milliseconds).`,
+                    vscode.DiagnosticSeverity.Error,
+                    'BP031'
+                ));
+            }
+
+            // BP032: SQL syntax in KQL template
+            if (/^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s/i.test(trimmed)) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    '[BP032] SQL syntax detected in KQL template. KQL uses different syntax (e.g., use table | project instead of SELECT FROM).',
+                    vscode.DiagnosticSeverity.Error,
+                    'BP032'
+                ));
+            }
+
+            // BP033: Management/destructive commands
+            if (/^\s*\.(set|append|drop|create|alter|delete|rename|ingest|move|replace|execute|cancel)\b/i.test(trimmed)) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    '[BP033] KQL management command detected. Security Copilot KQL queries are read-only; management commands are prohibited.',
+                    vscode.DiagnosticSeverity.Error,
+                    'BP033'
+                ));
+            }
+
+            // BP034: Wrong time column for target
+            if (target.toLowerCase() === 'defender' && /\bTimeGenerated\b/.test(line)) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    '[BP034] Defender uses `Timestamp` not `TimeGenerated`. Use the correct time column for the Defender target.',
+                    vscode.DiagnosticSeverity.Warning,
+                    'BP034'
+                ));
+            }
+            if (/sentinel|loganalytics/i.test(target) && /\bTimestamp\b/.test(line) && !/\bTimeGenerated\b/.test(line)) {
+                diagnostics.push(createDiagnostic(
+                    i, 0, i, line.length,
+                    '[BP034] Sentinel/LogAnalytics uses `TimeGenerated` not `Timestamp`. Use the correct time column for the target.',
+                    vscode.DiagnosticSeverity.Warning,
+                    'BP034'
+                ));
+            }
+
+            // BP035: Single = instead of == in where clause
+            if (/\bwhere\b/i.test(line)) {
+                // Match "where <column> = <value>" but not ==, !=, >=, <=, =~
+                const whereClause = line.replace(/.*\bwhere\b\s*/i, '');
+                if (/\w+\s*(?<![!<>=])=(?![=~])\s*["'\w{]/.test(whereClause)) {
+                    diagnostics.push(createDiagnostic(
+                        i, 0, i, line.length,
+                        '[BP035] Single `=` in where clause. KQL uses `==` for equality and `=~` for case-insensitive. Single `=` is invalid.',
+                        vscode.DiagnosticSeverity.Error,
+                        'BP035'
+                    ));
+                }
+            }
+
+            // BP036: Misspelled KQL operators
+            for (const [pattern, correction] of KQL_MISSPELLINGS) {
+                if (pattern.test(trimmed)) {
+                    const misspelled = trimmed.match(pattern)?.[0] || '';
+                    diagnostics.push(createDiagnostic(
+                        i, 0, i, line.length,
+                        `[BP036] Possible misspelled KQL operator "${misspelled}". Did you mean "${correction}"?`,
+                        vscode.DiagnosticSeverity.Error,
+                        'BP036'
+                    ));
+                }
+            }
+
+            // BP037: summarize with bare column but no by clause
+            if (/\bsummarize\b/i.test(trimmed) && !/\bby\b/i.test(trimmed)) {
+                // Check if there are non-function tokens after summarize (bare column names)
+                const afterSummarize = trimmed.replace(/.*\bsummarize\b\s*/i, '');
+                // Look for comma-separated items where at least one is a bare identifier (no parentheses)
+                const parts = afterSummarize.split(',').map(p => p.trim());
+                const hasBareColumn = parts.some(p => /^[A-Za-z_]\w*$/.test(p) && !/\(/.test(p));
+                const hasAggFunction = parts.some(p => /\w+\s*\(/.test(p));
+                if (hasBareColumn && hasAggFunction) {
+                    diagnostics.push(createDiagnostic(
+                        i, 0, i, line.length,
+                        '[BP037] `summarize` mixes aggregation functions with bare column names but has no `by` clause. Use `summarize <agg> by <column>`.',
+                        vscode.DiagnosticSeverity.Error,
+                        'BP037'
+                    ));
+                }
+            }
+
+            // BP038: join with invalid kind
+            const joinMatch = line.match(/\bjoin\s+kind\s*=\s*(\w+)/i);
+            if (joinMatch) {
+                const validKinds = ['inner', 'leftouter', 'rightouter', 'fullouter', 'leftanti', 'rightanti', 'leftsemi', 'rightsemi'];
+                if (!validKinds.includes(joinMatch[1].toLowerCase())) {
+                    diagnostics.push(createDiagnostic(
+                        i, 0, i, line.length,
+                        `[BP038] Invalid join kind "${joinMatch[1]}". Valid kinds: ${validKinds.join(', ')}.`,
+                        vscode.DiagnosticSeverity.Error,
+                        'BP038'
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/** Find KQL template regions (start/end line indices) in the document */
+function findKqlTemplateRegions(lines: string[], text: string): { startLine: number; endLine: number }[] {
+    const regions: { startLine: number; endLine: number }[] = [];
+
+    // Only look at KQL skill groups
+    let inKqlSkillGroup = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        // Detect entering/leaving KQL skill group
+        if (/^\s*-?\s*Format\s*:\s*KQL/i.test(lines[i])) {
+            inKqlSkillGroup = true;
+        } else if (/^\s*-?\s*Format\s*:\s*\w+/i.test(lines[i])) {
+            inKqlSkillGroup = false;
+        }
+
+        if (!inKqlSkillGroup) { continue; }
+
+        // Find Template: |- or Template: | or Template: >- lines
+        const templateMatch = lines[i].match(/^(\s*)Template\s*:\s*(\|[-+]?|>[-+]?)\s*$/);
+        if (templateMatch) {
+            const baseIndent = templateMatch[1].length;
+            const startLine = i + 1;
+            let endLine = startLine;
+
+            // Template block continues while lines are indented beyond the Template key
+            while (endLine < lines.length) {
+                const line = lines[endLine];
+                if (line.trim() === '') { endLine++; continue; }
+                const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+                if (indent <= baseIndent) { break; }
+                endLine++;
+            }
+            endLine = Math.max(startLine, endLine - 1);
+            if (startLine <= endLine) {
+                regions.push({ startLine, endLine });
+            }
+        }
+
+        // Also handle inline Template: <query> (single line)
+        const inlineMatch = lines[i].match(/^(\s*)Template\s*:\s*(\S.+)$/);
+        if (inlineMatch && !/^\|[-+]?\s*$/.test(inlineMatch[2].trim()) && !/^>[-+]?\s*$/.test(inlineMatch[2].trim())) {
+            regions.push({ startLine: i, endLine: i });
+        }
+    }
+
+    return regions;
 }
 
 function createDiagnostic(

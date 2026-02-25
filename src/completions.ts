@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
-import { isSecurityCopilotPlugin, getYamlPath, detectPluginFormat } from './utils';
+import { isSecurityCopilotPlugin, getYamlPath, detectFormatAtLine } from './utils';
 import {
     DESCRIPTOR_FIELDS, SKILLGROUP_FIELDS, GPT_SKILL_FIELDS,
-    KQL_SKILL_FIELDS, API_SKILLGROUP_SETTINGS, INPUT_FIELDS, SETTING_FIELDS
+    KQL_SKILL_FIELDS, API_SKILLGROUP_SETTINGS, INPUT_FIELDS, SETTING_FIELDS,
+    LOGICAPP_SKILL_FIELDS, MCP_SKILLGROUP_SETTINGS, AGENT_SKILL_FIELDS,
+    AGENT_DEFINITION_FIELDS, TRIGGER_FIELDS, SUGGESTED_PROMPT_FIELDS
 } from './schema';
 
 export function registerCompletions(context: vscode.ExtensionContext) {
@@ -36,11 +38,25 @@ export function registerCompletions(context: vscode.ExtensionContext) {
                 }
 
                 if (pathStr.includes('Skills')) {
-                    const format = detectPluginFormat(text);
+                    const format = detectFormatAtLine(text, position.line);
                     if (format === 'GPT') {
                         addFieldCompletions(completions, GPT_SKILL_FIELDS, getIndent(lineText));
                     } else if (format === 'KQL') {
                         addFieldCompletions(completions, KQL_SKILL_FIELDS, getIndent(lineText));
+                    } else if (format === 'LogicApp') {
+                        addFieldCompletions(completions, LOGICAPP_SKILL_FIELDS, getIndent(lineText));
+                    } else if (format === 'Agent') {
+                        addFieldCompletions(completions, AGENT_SKILL_FIELDS, getIndent(lineText));
+                    }
+                }
+
+                if (pathStr.includes('AgentDefinitions')) {
+                    addFieldCompletions(completions, AGENT_DEFINITION_FIELDS, getIndent(lineText));
+                    if (pathStr.includes('Triggers')) {
+                        addFieldCompletions(completions, TRIGGER_FIELDS, getIndent(lineText));
+                    }
+                    if (pathStr.includes('SuggestedPrompts')) {
+                        addFieldCompletions(completions, SUGGESTED_PROMPT_FIELDS, getIndent(lineText));
                     }
                 }
 
@@ -53,9 +69,11 @@ export function registerCompletions(context: vscode.ExtensionContext) {
                 }
 
                 if (pathStr.includes('Settings') && yamlPath.includes('SkillGroups')) {
-                    const format = detectPluginFormat(text);
+                    const format = detectFormatAtLine(text, position.line);
                     if (format === 'API') {
                         addFieldCompletions(completions, API_SKILLGROUP_SETTINGS, getIndent(lineText));
+                    } else if (format === 'MCP') {
+                        addFieldCompletions(completions, MCP_SKILLGROUP_SETTINGS, getIndent(lineText));
                     }
                 }
 
@@ -103,13 +121,16 @@ function addFieldCompletions(
 
 function addValueCompletions(completions: vscode.CompletionItem[], key: string, text: string) {
     const valueMap: Record<string, string[]> = {
-        Format: ['API', 'GPT', 'KQL'],
+        Format: ['API', 'GPT', 'KQL', 'LogicApp', 'MCP', 'Agent'],
         Target: ['Defender', 'Sentinel', 'LogAnalytics', 'Kusto'],
-        ModelName: ['gpt-4o', 'gpt-4-32k-v0613', 'gpt-4', 'gpt-4o-mini'],
+        ModelName: ['gpt-4o', 'gpt-4.1', 'gpt-4-32k-v0613', 'gpt-4', 'gpt-4o-mini'],
         SettingType: ['String', 'string'],
         Location: ['Header', 'QueryString'],
-        Type: ['APIKey', 'Basic', 'AAD', 'OAuthAuthorizationCodeFlow'],
+        Type: ['APIKey', 'Basic', 'AAD', 'AADDelegated', 'OAuthAuthorizationCodeFlow', 'OAuthClientCredentialsFlow'],
         Required: ['true', 'false'],
+        Interfaces: ['Agent', 'InteractiveAgent'],
+        AgentSingleInstanceConstraint: ['None', 'Workspace', 'Tenant'],
+        Model: ['gpt-4o', 'gpt-4.1', 'gpt-4-32k-v0613', 'gpt-4', 'gpt-4o-mini'],
     };
 
     const values = valueMap[key];
