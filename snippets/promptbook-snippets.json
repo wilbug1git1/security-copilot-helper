@@ -1,0 +1,76 @@
+{
+  "Security Copilot Promptbook": {
+    "prefix": "sc-promptbook",
+    "description": "Create a new Security Copilot promptbook",
+    "body": [
+      "# ${1:Promptbook Title}",
+      "",
+      "**Required plugins**: *${2:Microsoft Defender XDR}*",
+      "",
+      "**Required Input**: `<${3:input_variable}>`",
+      "",
+      "**Description**: ${4:Describe the investigation workflow.}",
+      "",
+      "---",
+      "",
+      "1. **${5:Gather initial context}**",
+      "",
+      "   ```",
+      "   ${6:Provide an overview of <${3:input_variable}> including recent activity and risk indicators.}",
+      "   ```",
+      "",
+      "2. **${7:Deep investigation}**",
+      "",
+      "   ```",
+      "   ${8:Based on the previous findings, investigate any anomalous behavior associated with <${3:input_variable}>.}",
+      "   ```",
+      "",
+      "3. **${9:Generate report}**",
+      "",
+      "   ```",
+      "   ${10:Compile a comprehensive investigation report including summary, findings, and recommendations.}",
+      "   ```",
+      "$0"
+    ]
+  },
+  "Promptbook Step": {
+    "prefix": "sc-pb-step",
+    "description": "Add a step to a Security Copilot promptbook",
+    "body": [
+      "${1:N}. **${2:Step description}**",
+      "",
+      "   ```",
+      "   ${3:Natural language prompt for this step.}",
+      "   ```",
+      "$0"
+    ]
+  },
+  "Promptbook Step (Skill Invocation)": {
+    "prefix": "sc-pb-skill-step",
+    "description": "Add a promptbook step with direct skill invocation",
+    "body": [
+      "${1:N}. **${2:Step description}**",
+      "",
+      "   ```",
+      "   /${3:SkillName} ${4:parameters and natural language instructions}",
+      "   ```",
+      "$0"
+    ]
+  },
+  "Promptbook Header": {
+    "prefix": "sc-pb-header",
+    "description": "Add promptbook metadata header",
+    "body": [
+      "# ${1:Title}",
+      "",
+      "**Required plugins**: *${2:Plugin Name}*",
+      "",
+      "**Required Input**: `<${3:variable}>`",
+      "",
+      "**Description**: ${4:Description of the promptbook.}",
+      "",
+      "---",
+      "$0"
+    ]
+  }
+}

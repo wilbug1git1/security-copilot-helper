@@ -1,0 +1,139 @@
+{
+  "name": "security-copilot-helper",
+  "displayName": "Security Copilot Plugin Helper",
+  "description": "Build Microsoft Security Copilot custom plugins (API, GPT, KQL) and promptbooks with real-time validation, IntelliSense, snippets, scaffolding wizard, and best-practice guidance.",
+  "version": "0.1.0",
+  "publisher": "security-copilot-community",
+  "author": {
+    "name": "Security Copilot Community"
+  },
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0078D4",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/badge/Security%20Copilot-Plugin%20Helper-0078D4?logo=microsoft",
+      "href": "https://learn.microsoft.com/security-copilot/extend/",
+      "description": "Security Copilot Docs"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AzureCopilotForSecurity/security-copilot-helper"
+  },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "Security Copilot",
+    "Microsoft Security",
+    "KQL",
+    "Promptbook",
+    "YAML",
+    "Defender",
+    "Sentinel",
+    "Threat Intelligence",
+    "Plugin",
+    "Security"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml",
+    "onLanguage:markdown",
+    "workspaceContains:**/*.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "snippets": [
+      {
+        "language": "yaml",
+        "path": "./snippets/plugin-snippets.json"
+      },
+      {
+        "language": "markdown",
+        "path": "./snippets/promptbook-snippets.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "securityCopilot.scaffoldPlugin",
+        "title": "Scaffold New Plugin (Guided Wizard)",
+        "category": "Security Copilot",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "securityCopilot.validatePlugin",
+        "title": "Validate Plugin Manifest",
+        "category": "Security Copilot",
+        "icon": "$(check)"
+      },
+      {
+        "command": "securityCopilot.newApiPlugin",
+        "title": "New API Plugin",
+        "category": "Security Copilot"
+      },
+      {
+        "command": "securityCopilot.newGptPlugin",
+        "title": "New GPT Plugin",
+        "category": "Security Copilot"
+      },
+      {
+        "command": "securityCopilot.newKqlPlugin",
+        "title": "New KQL Plugin",
+        "category": "Security Copilot"
+      },
+      {
+        "command": "securityCopilot.newPromptbook",
+        "title": "New Promptbook",
+        "category": "Security Copilot"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "securityCopilot.scaffoldPlugin" },
+        { "command": "securityCopilot.validatePlugin", "when": "editorLangId == yaml" },
+        { "command": "securityCopilot.newApiPlugin" },
+        { "command": "securityCopilot.newGptPlugin" },
+        { "command": "securityCopilot.newKqlPlugin" },
+        { "command": "securityCopilot.newPromptbook" }
+      ]
+    },
+    "configuration": {
+      "title": "Security Copilot Helper",
+      "properties": {
+        "securityCopilot.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time diagnostics and best practice warnings for Security Copilot plugin manifests.",
+          "order": 1
+        },
+        "securityCopilot.enableCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable IntelliSense completions for Security Copilot YAML fields.",
+          "order": 2
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "install-ext": "npx @vscode/vsce package --no-dependencies && code --install-extension security-copilot-helper-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "@types/vscode": "^1.109.0",
+    "typescript": "^5.9.3"
+  }
+}
